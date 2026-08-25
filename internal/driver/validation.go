@@ -1,12 +1,20 @@
 package driver
 
 import (
+	"context"
 	"os"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func contextError(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	return nil
+}
 
 func validateCapabilities(capabilities []*csi.VolumeCapability) error {
 	for _, capability := range capabilities {

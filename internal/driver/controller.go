@@ -21,7 +21,7 @@ func (d *Driver) ControllerGetCapabilities(context.Context, *csi.ControllerGetCa
 	}}, nil
 }
 
-func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
+func (d *Driver) CreateVolume(ctx context.Context, req *csi.CreateVolumeRequest) (*csi.CreateVolumeResponse, error) {
 	if req.GetName() == "" {
 		return nil, status.Error(codes.InvalidArgument, "name is required")
 	}
@@ -55,6 +55,9 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 	id := deriveVolumeID(req.GetName())
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -95,7 +98,7 @@ func (d *Driver) createVolumeResponse(v volumeMetadata) *csi.CreateVolumeRespons
 	}}
 }
 
-func (d *Driver) DeleteVolume(_ context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
+func (d *Driver) DeleteVolume(ctx context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
 	id, err := requestVolumeID(req.GetVolumeId())
 	if err != nil {
 		return nil, err
@@ -105,6 +108,9 @@ func (d *Driver) DeleteVolume(_ context.Context, req *csi.DeleteVolumeRequest) (
 	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -118,7 +124,7 @@ func (d *Driver) DeleteVolume(_ context.Context, req *csi.DeleteVolumeRequest) (
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
-func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
+func (d *Driver) ValidateVolumeCapabilities(ctx context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
 	id, err := requestVolumeID(req.GetVolumeId())
 	if err != nil {
 		return nil, err
@@ -136,6 +142,9 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.Validate
 	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}

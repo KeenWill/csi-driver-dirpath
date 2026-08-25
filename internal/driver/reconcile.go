@@ -184,6 +184,10 @@ func (d *Driver) reconcile(ctx context.Context, now time.Time) {
 		if idErr == nil {
 			unlock = d.volumeLocks.lock(id)
 		}
+		if ctx.Err() != nil {
+			unlock()
+			return
+		}
 		if !d.orphanEligible(name, now) {
 			unlock()
 			continue

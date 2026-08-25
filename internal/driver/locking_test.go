@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,68 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func TestNodePublishStopsAfterCanceledLockWait(t *testing.T) {
+	d := testDriver(t)
+	id := VolumeID("vol-canceled-publish")
+	target := filepath.Join(t.TempDir(), "target")
+	mounter := &countingMounter{}
+	d.mounter = mounter
+
+	releaseLock := d.volumeLocks.lock(id)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(releaseLock) }
+	defer release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, err := d.NodePublishVolume(ctx, &csi.NodePublishVolumeRequest{
+			VolumeId:         string(id),
+			TargetPath:       target,
+			VolumeCapability: testCapabilities()[0],
+		})
+		result <- err
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for d.volumeLocks.references(id) != 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("NodePublishVolume did not reach the volume lock")
+		}
+		runtime.Gosched()
+	}
+	cancel()
+	release()
+
+	if err := <-result; status.Code(err) != codes.Canceled {
+		t.Fatalf("NodePublishVolume error = %v, want Canceled", err)
+	}
+	if got := mounter.mountCalls.Load(); got != 0 {
+		t.Fatalf("mount calls = %d, want 0", got)
+	}
+	for _, path := range []string{d.store.volumePath(id), target} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("path %s was created after cancellation: %v", path, err)
+		}
+	}
+}
+
+type countingMounter struct {
+	mountCalls atomic.Int32
+}
+
+func (m *countingMounter) Mount(string, string, bool) error {
+	m.mountCalls.Add(1)
+	return nil
+}
+
+func (*countingMounter) Unmount(string) error { return nil }
+
+func (*countingMounter) Mounted(string) (bool, bool, error) {
+	return false, false, nil
+}
 
 func TestCreateVolumeRechecksFenceAfterWaitingForLock(t *testing.T) {
 	d := testDriver(t)

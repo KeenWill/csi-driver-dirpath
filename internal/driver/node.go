@@ -27,7 +27,7 @@ func (d *Driver) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.Nod
 	return &csi.NodeGetInfoResponse{NodeId: string(d.config.NodeID), AccessibleTopology: d.topology()}, nil
 }
 
-func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
+func (d *Driver) NodePublishVolume(ctx context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
 	id, err := requestVolumeID(req.GetVolumeId())
 	if err != nil {
 		return nil, err
@@ -47,6 +47,9 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -99,7 +102,7 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
-func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
+func (d *Driver) NodeUnpublishVolume(ctx context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
 	id, err := requestVolumeID(req.GetVolumeId())
 	if err != nil {
 		return nil, err
@@ -112,6 +115,9 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
@@ -125,7 +131,7 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
-func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
+func (d *Driver) NodeGetVolumeStats(ctx context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
 	id, err := requestVolumeID(req.GetVolumeId())
 	if err != nil {
 		return nil, err
@@ -138,6 +144,9 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
