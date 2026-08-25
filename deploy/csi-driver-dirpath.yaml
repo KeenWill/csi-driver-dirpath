@@ -129,6 +129,8 @@ spec:
         - name: dirpath-plugin
           image: ghcr.io/keenwill/csi-driver-dirpath:v0.1.1
           imagePullPolicy: IfNotPresent
+          command:
+            - /csi-driver-dirpath
           args:
             - --endpoint=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)

@@ -16,6 +16,7 @@ e2e:
 
 helm-lint:
 	$(HELM) lint charts/csi-driver-dirpath
+	HELM=$(HELM) bash hack/test-chart.sh
 
 manifests:
 	HELM=$(HELM) bash hack/render-manifests.sh

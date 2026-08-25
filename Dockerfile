@@ -9,7 +9,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /dirpath-plugin ./cmd/dirpath-plugin
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /csi-driver-dirpath ./cmd/dirpath-plugin
 
 FROM scratch
 ARG VERSION=dev
@@ -17,5 +17,5 @@ ARG REVISION=unknown
 LABEL org.opencontainers.image.source="https://github.com/KeenWill/csi-driver-dirpath" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
-COPY --from=build /dirpath-plugin /dirpath-plugin
-ENTRYPOINT ["/dirpath-plugin"]
+COPY --from=build /csi-driver-dirpath /csi-driver-dirpath
+ENTRYPOINT ["/csi-driver-dirpath"]

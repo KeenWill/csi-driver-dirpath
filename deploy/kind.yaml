@@ -129,6 +129,8 @@ spec:
         - name: dirpath-plugin
           image: csi-driver-dirpath:e2e
           imagePullPolicy: Never
+          command:
+            - /csi-driver-dirpath
           args:
             - --endpoint=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)
