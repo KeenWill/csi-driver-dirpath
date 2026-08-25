@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dirpath-e2e
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: dirpath
+  resources:
+    requests:
+      storage: 16Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dirpath-e2e
+spec:
+  containers:
+    - name: writer
+      image: busybox:1.36.1
+      command: ["sh", "-c", "printf dirpath-e2e > /data/message && sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: dirpath-e2e

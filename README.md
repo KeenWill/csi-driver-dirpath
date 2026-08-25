@@ -1,7 +1,7 @@
 # csi-driver-dirpath
 Minimal CSI driver that provisions per-volume directories on an existing node mount via bind-mounts. DaemonSet node plugin, no helper pods, optional XFS project quotas.
 
-**Status: specification stage.** See [SPEC.md](SPEC.md) for the full design — goals, architecture (distributed provisioning, no central controller), mount fence, XFS project quotas, packaging (Helm chart + ghcr OCI), and milestones.
+**Status:** milestones 1 and 2 are implemented: the CSI services pass `csi-sanity`, and the unquotaed directory lifecycle, mount fence, distributed provisioning, and orphan reconciliation run end-to-end in kind. XFS project quotas and release packaging remain future milestones. See [SPEC.md](SPEC.md) for the full design.
 
 ## Why
 
