@@ -166,6 +166,44 @@ func TestCompatibilityQueriesReportUnsupportedParameters(t *testing.T) {
 	}
 }
 
+func TestValidateVolumeCapabilitiesReturnsNotFoundBeforeUnsupportedParameters(t *testing.T) {
+	response, err := testDriver(t).ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           "vol-missing",
+		Parameters:         map[string]string{"unknown": "value"},
+		VolumeCapabilities: testCapabilities(),
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, error = %v, want NotFound", response, err)
+	}
+}
+
+func TestValidateVolumeCapabilitiesConfirmsMatchingLegacyParameters(t *testing.T) {
+	d := testDriver(t)
+	name := "pvc-validate-legacy-parameters"
+	id := deriveVolumeID(name)
+	parameters := map[string]string{"legacy.example/parameter": "value"}
+	if err := d.store.create(volumeMetadata{
+		ID:         id,
+		Name:       name,
+		NodeID:     d.config.NodeID,
+		Parameters: parameters,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           string(id),
+		Parameters:         parameters,
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetConfirmed() == nil || response.GetConfirmed().GetParameters()["legacy.example/parameter"] != "value" {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, want confirmed legacy parameters", response)
+	}
+}
+
 func TestCreateVolumeRetriesLegacyParameters(t *testing.T) {
 	d := testDriver(t)
 	name := "pvc-legacy-parameters"

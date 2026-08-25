@@ -129,21 +129,24 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.Validate
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if quotas, err := quotasRequested(req.GetParameters()); err != nil {
-		return &csi.ValidateVolumeCapabilitiesResponse{Message: err.Error()}, nil
-	} else if quotas {
-		return &csi.ValidateVolumeCapabilitiesResponse{Message: "quotas are not supported yet"}, nil
-	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if _, err := d.store.load(id); err != nil {
+	existing, err := d.store.load(id)
+	if err != nil {
 		if isNotExist(err) {
 			return nil, status.Error(codes.NotFound, "volume not found")
 		}
 		return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
+	}
+	if !equalParameters(existing.Parameters, req.GetParameters()) {
+		if quotas, err := quotasRequested(req.GetParameters()); err != nil {
+			return &csi.ValidateVolumeCapabilitiesResponse{Message: err.Error()}, nil
+		} else if quotas {
+			return &csi.ValidateVolumeCapabilitiesResponse{Message: "quotas are not supported yet"}, nil
+		}
 	}
 	if err := validateCapabilities(req.GetVolumeCapabilities()); err != nil {
 		return &csi.ValidateVolumeCapabilitiesResponse{Message: err.Error()}, nil
