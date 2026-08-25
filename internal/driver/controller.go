@@ -38,13 +38,6 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 	if err != nil {
 		return nil, err
 	}
-	quotas, err := quotasRequested(req.GetParameters())
-	if err != nil {
-		return nil, err
-	}
-	if quotas {
-		return nil, status.Error(codes.InvalidArgument, "quotas are not supported yet")
-	}
 	if !d.topologyAllowed(req.GetAccessibilityRequirements()) {
 		return nil, status.Error(codes.ResourceExhausted, "volume is not accessible from the requested topology")
 	}
@@ -72,6 +65,13 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 		return d.createVolumeResponse(existing), nil
 	} else if !isNotExist(err) {
 		return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
+	}
+	quotas, err := quotasRequested(req.GetParameters())
+	if err != nil {
+		return nil, err
+	}
+	if quotas {
+		return nil, status.Error(codes.InvalidArgument, "quotas are not supported yet")
 	}
 
 	v := volumeMetadata{ID: id, Name: req.GetName(), NodeID: d.config.NodeID, CapacityBytes: capacity, Parameters: cloneMap(req.GetParameters())}
@@ -126,13 +126,13 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.Validate
 	if len(req.GetVolumeCapabilities()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
 	}
-	if quotas, err := quotasRequested(req.GetParameters()); err != nil {
-		return nil, err
-	} else if quotas {
-		return &csi.ValidateVolumeCapabilitiesResponse{Message: "quotas are not supported yet"}, nil
-	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if quotas, err := quotasRequested(req.GetParameters()); err != nil {
+		return &csi.ValidateVolumeCapabilitiesResponse{Message: err.Error()}, nil
+	} else if quotas {
+		return &csi.ValidateVolumeCapabilitiesResponse{Message: "quotas are not supported yet"}, nil
 	}
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
@@ -152,15 +152,15 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.Validate
 }
 
 func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*csi.GetCapacityResponse, error) {
-	quotas, err := quotasRequested(req.GetParameters())
-	if err != nil {
-		return nil, err
-	}
-	if quotas {
-		return nil, status.Error(codes.InvalidArgument, "quotas are not supported yet")
-	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	quotas, err := quotasRequested(req.GetParameters())
+	if err != nil {
+		return &csi.GetCapacityResponse{}, nil
+	}
+	if quotas {
+		return &csi.GetCapacityResponse{}, nil
 	}
 	if err := validateCapabilities(req.GetVolumeCapabilities()); err != nil {
 		return &csi.GetCapacityResponse{}, nil
