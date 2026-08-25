@@ -123,6 +123,100 @@ func TestCreateVolumeStrictlyParsesQuotas(t *testing.T) {
 	}
 }
 
+func TestControllerRPCsRejectUnknownParameters(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		call func(*Driver) error
+	}{
+		{
+			name: "CreateVolume misspelling",
+			call: func(d *Driver) error {
+				_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+					Name:               "pvc-unknown-parameter",
+					Parameters:         map[string]string{"quota": "true"},
+					VolumeCapabilities: testCapabilities(),
+				})
+				return err
+			},
+		},
+		{
+			name: "ValidateVolumeCapabilities unknown key",
+			call: func(d *Driver) error {
+				created, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+					Name:               "pvc-validate-unknown-parameter",
+					VolumeCapabilities: testCapabilities(),
+				})
+				if err != nil {
+					return err
+				}
+				_, err = d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+					VolumeId:           created.GetVolume().GetVolumeId(),
+					Parameters:         map[string]string{"basePath": "/tmp"},
+					VolumeCapabilities: testCapabilities(),
+				})
+				return err
+			},
+		},
+		{
+			name: "GetCapacity unknown key",
+			call: func(d *Driver) error {
+				_, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{
+					Parameters: map[string]string{"unknown": "value"},
+				})
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.call(testDriver(t))
+			if status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "unknown parameter") {
+				t.Fatalf("controller RPC error = %v, want InvalidArgument unknown parameter", err)
+			}
+		})
+	}
+}
+
+func TestGetCapacityReturnsZeroForUnsupportedCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		capability *csi.VolumeCapability
+	}{
+		{
+			name: "block",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+			},
+		},
+		{
+			name: "multi node writer",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+		},
+		{
+			name: "mount flags",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{MountFlags: []string{"noatime"}}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := testDriver(t).GetCapacity(context.Background(), &csi.GetCapacityRequest{
+				VolumeCapabilities: []*csi.VolumeCapability{test.capability},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.GetAvailableCapacity() != 0 {
+				t.Fatalf("available capacity = %d, want 0", response.GetAvailableCapacity())
+			}
+		})
+	}
+}
+
 func TestValidateConfigRejectsInvalidReconciliationDurations(t *testing.T) {
 	for _, test := range []struct {
 		name     string
