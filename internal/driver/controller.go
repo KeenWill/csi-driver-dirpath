@@ -159,11 +159,11 @@ func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*c
 	if quotas {
 		return nil, status.Error(codes.InvalidArgument, "quotas are not supported yet")
 	}
-	if err := validateCapabilities(req.GetVolumeCapabilities()); err != nil {
-		return &csi.GetCapacityResponse{}, nil
-	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if err := validateCapabilities(req.GetVolumeCapabilities()); err != nil {
+		return &csi.GetCapacityResponse{}, nil
 	}
 	if req.GetAccessibleTopology() != nil && req.GetAccessibleTopology().GetSegments()[topologyKey] != string(d.config.NodeID) {
 		return &csi.GetCapacityResponse{}, nil

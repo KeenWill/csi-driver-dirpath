@@ -217,6 +217,24 @@ func TestGetCapacityReturnsZeroForUnsupportedCapabilities(t *testing.T) {
 	}
 }
 
+func TestGetCapacityChecksFenceBeforeUnsupportedCapabilities(t *testing.T) {
+	d := testDriver(t)
+	if err := os.Remove(filepath.Join(string(d.config.BasePath), ".dirpath-fence")); err != nil {
+		t.Fatal(err)
+	}
+	response, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{
+		VolumeCapabilities: []*csi.VolumeCapability{{
+			AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		}},
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("GetCapacity response = %#v, error = %v, want FailedPrecondition", response, err)
+	}
+}
+
 func TestValidateConfigRejectsInvalidReconciliationDurations(t *testing.T) {
 	for _, test := range []struct {
 		name     string
