@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -18,22 +19,24 @@ type pvLister interface {
 }
 
 type apiPVLister struct {
-	url    string
-	token  string
-	client *http.Client
-	nodeID string
+	url       string
+	tokenPath string
+	client    *http.Client
+	nodeID    string
 }
+
+const serviceAccountPath = "/var/run/secrets/kubernetes.io/serviceaccount"
 
 func inClusterPVLister(nodeID string) (pvLister, error) {
 	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("Kubernetes service environment is not present")
 	}
-	token, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		return nil, fmt.Errorf("read service account token: %w", err)
+	tokenPath := filepath.Join(serviceAccountPath, "token")
+	if _, err := os.Stat(tokenPath); err != nil {
+		return nil, fmt.Errorf("stat service account token: %w", err)
 	}
-	ca, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/ca.crt")
+	ca, err := os.ReadFile(filepath.Join(serviceAccountPath, "ca.crt"))
 	if err != nil {
 		return nil, fmt.Errorf("read service account CA: %w", err)
 	}
@@ -42,19 +45,26 @@ func inClusterPVLister(nodeID string) (pvLister, error) {
 		return nil, fmt.Errorf("parse service account CA")
 	}
 	return &apiPVLister{
-		url:    "https://" + net.JoinHostPort(host, port) + "/api/v1/persistentvolumes",
-		token:  string(token),
-		client: &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}}},
-		nodeID: nodeID,
+		url:       "https://" + net.JoinHostPort(host, port) + "/api/v1/persistentvolumes",
+		tokenPath: tokenPath,
+		client:    &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}}},
+		nodeID:    nodeID,
 	}, nil
 }
 
 func (l *apiPVLister) List(ctx context.Context) (map[string]struct{}, error) {
+	token, err := os.ReadFile(l.tokenPath)
+	if err != nil {
+		return nil, fmt.Errorf("read service account token: %w", err)
+	}
+	if len(strings.TrimSpace(string(token))) == 0 {
+		return nil, fmt.Errorf("service account token is empty")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+l.token)
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
 	response, err := l.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -144,8 +154,6 @@ func (d *Driver) reconcile(ctx context.Context, now time.Time) {
 		d.log.Error("list volume directories", "error", err)
 		return
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	directories := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -154,23 +162,34 @@ func (d *Driver) reconcile(ctx context.Context, now time.Time) {
 		id := entry.Name()
 		directories[id] = struct{}{}
 		if _, exists := pvs[id]; exists {
-			delete(d.orphanSince, id)
+			d.clearOrphan(id)
 			continue
 		}
-		firstSeen, tracked := d.orphanSince[id]
-		if !tracked {
-			d.orphanSince[id] = now
+		firstSeen, firstObservation := d.observeOrphan(id, now)
+		if firstObservation {
 			d.log.Warn("found orphan volume directory", "volume_id", id)
 			continue
 		}
 		if now.Sub(firstSeen) < d.config.OrphanGracePeriod {
 			continue
 		}
+		unlock := d.volumeLocks.lock(id)
+		if !d.orphanEligible(id, now) {
+			unlock()
+			continue
+		}
+		if err := d.checkFence(); err != nil {
+			unlock()
+			d.log.Error("skipping orphan deletion because fence failed", "volume_id", id, "error", err)
+			continue
+		}
 		if err := d.store.deleteEntry(id); err != nil {
+			unlock()
 			d.log.Error("delete orphan volume directory", "volume_id", id, "error", err)
 			continue
 		}
-		delete(d.orphanSince, id)
+		d.clearOrphan(id)
+		unlock()
 		d.log.Info("deleted orphan volume directory", "volume_id", id)
 	}
 	for id := range pvs {
@@ -178,4 +197,28 @@ func (d *Driver) reconcile(ctx context.Context, now time.Time) {
 			d.log.Error("persistent volume directory is missing; it will be recreated empty on publish", "volume_id", id, "path", filepath.Join(d.store.volumes, id))
 		}
 	}
+}
+
+func (d *Driver) observeOrphan(id string, now time.Time) (time.Time, bool) {
+	d.orphanMu.Lock()
+	defer d.orphanMu.Unlock()
+	firstSeen, exists := d.orphanSince[id]
+	if !exists {
+		d.orphanSince[id] = now
+		return now, true
+	}
+	return firstSeen, false
+}
+
+func (d *Driver) orphanEligible(id string, now time.Time) bool {
+	d.orphanMu.Lock()
+	defer d.orphanMu.Unlock()
+	firstSeen, exists := d.orphanSince[id]
+	return exists && now.Sub(firstSeen) >= d.config.OrphanGracePeriod
+}
+
+func (d *Driver) clearOrphan(id string) {
+	d.orphanMu.Lock()
+	delete(d.orphanSince, id)
+	d.orphanMu.Unlock()
 }

@@ -43,29 +43,36 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 	if err := validateCapabilities([]*csi.VolumeCapability{req.GetVolumeCapability()}); err != nil {
 		return nil, err
 	}
-	if len(req.GetVolumeCapability().GetMount().GetMountFlags()) != 0 {
-		return nil, status.Error(codes.InvalidArgument, "mount flags are not supported")
-	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	defer unlock()
+	if err := d.checkFence(); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
 	if _, err := d.store.load(req.GetVolumeId()); err != nil {
 		if isNotExist(err) {
-			return nil, status.Error(codes.NotFound, "volume metadata not found")
+			d.log.Error("volume metadata is missing; recreating empty scratch volume", "volume_id", req.GetVolumeId())
+		} else {
+			return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
 	}
 	source := d.store.volumePath(req.GetVolumeId())
 	if _, err := os.Stat(source); os.IsNotExist(err) {
 		d.log.Error("volume directory is missing; recreating empty scratch volume", "volume_id", req.GetVolumeId())
+		if err := d.checkFence(); err != nil {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
 		if err := d.store.ensureDirectory(req.GetVolumeId()); err != nil {
 			return nil, status.Errorf(codes.Internal, "recreate volume directory: %v", err)
 		}
 	} else if err != nil {
 		return nil, status.Errorf(codes.Internal, "inspect volume directory: %v", err)
+	}
+	if err := d.checkFence(); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if err := os.MkdirAll(req.GetTargetPath(), 0o750); err != nil {
 		return nil, status.Errorf(codes.Internal, "create target path: %v", err)
@@ -84,6 +91,9 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 		}
 		return &csi.NodePublishVolumeResponse{}, nil
 	}
+	if err := d.checkFence(); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
 	if err := d.mounter.Mount(source, req.GetTargetPath(), req.GetReadonly()); err != nil {
 		return nil, status.Errorf(codes.Internal, "bind mount volume: %v", err)
 	}
@@ -95,14 +105,20 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume id is required")
 	}
+	if !validVolumeID(req.GetVolumeId()) {
+		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	}
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target path is required")
 	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	defer unlock()
+	if err := d.checkFence(); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
 	if err := d.mounter.Unmount(req.GetTargetPath()); err != nil {
 		return nil, status.Errorf(codes.Internal, "unmount target: %v", err)
 	}
@@ -117,9 +133,17 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 	if req.GetVolumeId() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume id is required")
 	}
+	if !validVolumeID(req.GetVolumeId()) {
+		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	}
 	if req.GetVolumePath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
 	}
+	if err := d.checkFence(); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}

@@ -40,7 +40,8 @@ type Driver struct {
 	mounter mounter
 	pvs     pvLister
 
-	mu          sync.Mutex
+	volumeLocks *keyedMutex
+	orphanMu    sync.Mutex
 	orphanSince map[string]time.Time
 }
 
@@ -51,18 +52,12 @@ func New(config Config, logger *slog.Logger) *Driver {
 	if config.MountMode == "" {
 		config.MountMode = "real"
 	}
-	if config.OrphanGracePeriod == 0 {
-		config.OrphanGracePeriod = 10 * time.Minute
-	}
-	if config.ReconcileInterval == 0 {
-		config.ReconcileInterval = time.Minute
-	}
-
 	d := &Driver{
 		config:      config,
 		log:         logger,
 		fence:       newFence(config.BasePath, config.FenceToken, config.FenceMode, config.FenceID),
 		store:       newVolumeStore(config.BasePath),
+		volumeLocks: newKeyedMutex(),
 		orphanSince: make(map[string]time.Time),
 	}
 	if config.MountMode == "noop" {
@@ -85,6 +80,12 @@ func (d *Driver) validateConfig() error {
 	}
 	if d.config.MountMode != "real" && d.config.MountMode != "noop" {
 		return fmt.Errorf("mount-mode must be real or noop")
+	}
+	if d.config.ReconcileInterval <= 0 {
+		return fmt.Errorf("reconcile-interval must be positive")
+	}
+	if d.config.OrphanGracePeriod < 0 {
+		return fmt.Errorf("orphan-grace-period must not be negative")
 	}
 	return d.fence.validateConfig()
 }

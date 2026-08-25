@@ -16,11 +16,25 @@ func validateCapabilities(capabilities []*csi.VolumeCapability) error {
 		if capability.GetMount() == nil {
 			return status.Error(codes.InvalidArgument, "only mount volumes are supported")
 		}
+		if len(capability.GetMount().GetMountFlags()) != 0 {
+			return status.Error(codes.InvalidArgument, "mount flags are not supported")
+		}
 		if capability.GetAccessMode().GetMode() != csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER {
 			return status.Error(codes.InvalidArgument, "only SINGLE_NODE_WRITER is supported")
 		}
 	}
 	return nil
+}
+
+func quotasRequested(parameters map[string]string) (bool, error) {
+	value, present := parameters["quotas"]
+	if !present || value == "false" {
+		return false, nil
+	}
+	if value == "true" {
+		return true, nil
+	}
+	return false, status.Error(codes.InvalidArgument, "quotas must be true or false")
 }
 
 func requestedCapacity(capacity *csi.CapacityRange) (int64, error) {

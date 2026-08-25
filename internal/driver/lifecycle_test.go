@@ -28,8 +28,10 @@ func TestDirectoryLifecycleAndFence(t *testing.T) {
 		t.Fatalf("volume directory: info=%v err=%v", info, err)
 	}
 
-	if err := os.Remove(volumePath); err != nil {
-		t.Fatal(err)
+	for _, path := range []string{volumePath, d.store.metadataPath(id)} {
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
 	}
 	target := filepath.Join(t.TempDir(), "target")
 	if _, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
