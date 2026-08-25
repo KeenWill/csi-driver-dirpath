@@ -1,4 +1,4 @@
-.PHONY: build test sanity
+.PHONY: build test sanity e2e
 
 build:
 	go build ./...
@@ -8,3 +8,6 @@ test:
 
 sanity:
 	bash hack/sanity.sh
+
+e2e:
+	bash hack/e2e.sh
