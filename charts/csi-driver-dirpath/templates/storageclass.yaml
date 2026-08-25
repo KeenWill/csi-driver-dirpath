@@ -9,7 +9,7 @@ metadata:
   annotations:
     storageclass.kubernetes.io/is-default-class: "true"
   {{- end }}
-provisioner: {{ .Values.driverName }}
+provisioner: {{ include "csi-driver-dirpath.driverName" . }}
 parameters:
   quotas: {{ .Values.storageClass.quotas | quote }}
 reclaimPolicy: {{ .Values.storageClass.reclaimPolicy }}

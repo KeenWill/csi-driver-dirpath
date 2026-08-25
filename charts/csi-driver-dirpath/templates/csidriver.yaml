@@ -2,7 +2,7 @@
 apiVersion: storage.k8s.io/v1
 kind: CSIDriver
 metadata:
-  name: {{ .Values.driverName }}
+  name: {{ include "csi-driver-dirpath.driverName" . }}
   labels:
     {{- include "csi-driver-dirpath.labels" . | nindent 4 }}
 spec:
