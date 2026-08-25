@@ -15,7 +15,7 @@ Install the OCI chart and optionally create its StorageClass:
 
 ```sh
 helm install csi-driver-dirpath oci://ghcr.io/keenwill/csi-driver-dirpath \
-  --version v0.1.0 \
+  --version v0.1.1 \
   --namespace kube-system \
   --set-file fence.token=/path/to/fence-token \
   --set storageClass.create=true
