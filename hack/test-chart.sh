@@ -16,7 +16,7 @@ awk '
   plugin && $0 == "        - name: node-driver-registrar" { exit }
   plugin && $0 == "          command:" {
     getline
-    if ($0 == "            - /csi-driver-dirpath") found = 1
+    if ($0 == "            - /dirpath-plugin") found = 1
   }
   END { exit !found }
 ' "${rendered}"
