@@ -42,7 +42,7 @@ jobs:
           fi
           git show-ref --verify --quiet "refs/tags/${release_tag}"
           echo "release_tag=${release_tag}" >>"${GITHUB_OUTPUT}"
-          echo "chart_version=${release_tag#v}" >>"${GITHUB_OUTPUT}"
+          echo "chart_version=${release_tag}" >>"${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
