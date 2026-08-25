@@ -1,0 +1,15 @@
+{{- if .Values.csiDriver.create }}
+apiVersion: storage.k8s.io/v1
+kind: CSIDriver
+metadata:
+  name: {{ .Values.driverName }}
+  labels:
+    {{- include "csi-driver-dirpath.labels" . | nindent 4 }}
+spec:
+  attachRequired: false
+  podInfoOnMount: false
+  fsGroupPolicy: File
+  storageCapacity: false
+  volumeLifecycleModes:
+    - Persistent
+{{- end }}

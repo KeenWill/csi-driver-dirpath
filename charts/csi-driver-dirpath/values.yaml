@@ -1,0 +1,66 @@
+driverName: csi.dirpath.dev
+kubeletRootDir: /var/lib/kubelet
+basePath: /var/lib/dirpath
+
+image:
+  repository: ghcr.io/keenwill/csi-driver-dirpath
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+fence:
+  token: replace-me
+  existingSecret: ""
+  existingSecretKey: fence-token
+  mode: marker
+  id: ""
+
+orphanReclaim:
+  enabled: true
+  gracePeriod: 10m
+  reconcileInterval: 1m
+
+resources: {}
+
+sidecars:
+  nodeDriverRegistrar:
+    image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.13.0@sha256:d7138bcc3aa5f267403d45ad4292c95397e421ea17a0035888850f424c7de25d
+    pullPolicy: IfNotPresent
+    resources: {}
+  externalProvisioner:
+    image: registry.k8s.io/sig-storage/csi-provisioner:v5.2.0@sha256:d5e46da8aff7d73d6f00c761dae94472bcda6e78f4f17b3802dc89d44de0111b
+    pullPolicy: IfNotPresent
+    resources: {}
+    workerThreads: 5
+    retryIntervalStart: 1s
+    retryIntervalMax: 5s
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+csiDriver:
+  create: true
+
+storageClass:
+  create: false
+  name: dirpath
+  default: false
+  reclaimPolicy: Delete
+  volumeBindingMode: WaitForFirstConsumer
+  quotas: false
+
+priorityClassName: system-node-critical
+imagePullSecrets: []
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations:
+  - operator: Exists
+
+nameOverride: ""
+fullnameOverride: ""

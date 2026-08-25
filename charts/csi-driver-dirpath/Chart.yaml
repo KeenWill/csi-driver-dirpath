@@ -1,0 +1,9 @@
+apiVersion: v2
+name: csi-driver-dirpath
+description: Node-local CSI driver for directory-backed scratch volumes
+type: application
+version: v0.1.1
+appVersion: "v0.1.1"
+home: https://github.com/KeenWill/csi-driver-dirpath
+sources:
+  - https://github.com/KeenWill/csi-driver-dirpath

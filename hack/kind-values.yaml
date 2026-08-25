@@ -1,0 +1,16 @@
+fullnameOverride: csi-dirpath
+
+image:
+  repository: csi-driver-dirpath
+  tag: e2e
+  pullPolicy: Never
+
+fence:
+  token: kind-e2e-fence
+
+orphanReclaim:
+  gracePeriod: 3s
+  reconcileInterval: 1s
+
+storageClass:
+  create: true

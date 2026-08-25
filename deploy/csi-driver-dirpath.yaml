@@ -3,7 +3,7 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: csi-dirpath
+  name: csi-driver-dirpath
   namespace: kube-system
   labels:
     helm.sh/chart: csi-driver-dirpath-v0.1.1
@@ -16,7 +16,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: csi-dirpath-fence
+  name: csi-driver-dirpath-fence
   namespace: kube-system
   labels:
     helm.sh/chart: csi-driver-dirpath-v0.1.1
@@ -26,7 +26,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
-  fence-token: "kind-e2e-fence"
+  fence-token: "replace-me"
 ---
 # Source: csi-driver-dirpath/templates/storageclass.yaml
 apiVersion: storage.k8s.io/v1
@@ -49,7 +49,7 @@ volumeBindingMode: WaitForFirstConsumer
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: csi-dirpath
+  name: csi-driver-dirpath
   labels:
     helm.sh/chart: csi-driver-dirpath-v0.1.1
     app.kubernetes.io/name: csi-driver-dirpath
@@ -80,7 +80,7 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: csi-dirpath
+  name: csi-driver-dirpath
   labels:
     helm.sh/chart: csi-driver-dirpath-v0.1.1
     app.kubernetes.io/name: csi-driver-dirpath
@@ -89,18 +89,18 @@ metadata:
     app.kubernetes.io/managed-by: Helm
 subjects:
   - kind: ServiceAccount
-    name: csi-dirpath
+    name: csi-driver-dirpath
     namespace: kube-system
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: csi-dirpath
+  name: csi-driver-dirpath
 ---
 # Source: csi-driver-dirpath/templates/daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: csi-dirpath
+  name: csi-driver-dirpath
   namespace: kube-system
   labels:
     helm.sh/chart: csi-driver-dirpath-v0.1.1
@@ -119,16 +119,16 @@ spec:
         app.kubernetes.io/name: csi-driver-dirpath
         app.kubernetes.io/instance: csi-driver-dirpath
       annotations:
-        checksum/fence-secret: 982d384da4b4c85bf851dc65d40e1ae5a650f015941b7f5796a85707867df1a0
+        checksum/fence-secret: 476b10997a674350b23099296fa8a9bf9d67516e056534713c5aa59a4e84094b
     spec:
-      serviceAccountName: csi-dirpath
+      serviceAccountName: csi-driver-dirpath
       priorityClassName: system-node-critical
       tolerations:
         - operator: Exists
       containers:
         - name: dirpath-plugin
-          image: csi-driver-dirpath:e2e
-          imagePullPolicy: Never
+          image: ghcr.io/keenwill/csi-driver-dirpath:v0.1.1
+          imagePullPolicy: IfNotPresent
           args:
             - --endpoint=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)
@@ -136,8 +136,8 @@ spec:
             - --fence-token=$(FENCE_TOKEN)
             - --fence-mode=marker
             - --orphan-reclaim=true
-            - --orphan-grace-period=3s
-            - --reconcile-interval=1s
+            - --orphan-grace-period=10m
+            - --reconcile-interval=1m
           env:
             - name: NODE_NAME
               valueFrom:
@@ -146,7 +146,7 @@ spec:
             - name: FENCE_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: csi-dirpath-fence
+                  name: csi-driver-dirpath-fence
                   key: fence-token
           securityContext:
             privileged: true

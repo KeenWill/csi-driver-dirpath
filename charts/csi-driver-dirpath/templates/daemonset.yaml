@@ -1,0 +1,141 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "csi-driver-dirpath.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "csi-driver-dirpath.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "csi-driver-dirpath.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "csi-driver-dirpath.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/fence-secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "csi-driver-dirpath.serviceAccountName" . }}
+      priorityClassName: {{ .Values.priorityClassName }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      tolerations:
+        {{- toYaml .Values.tolerations | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: dirpath-plugin
+          image: {{ include "csi-driver-dirpath.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --endpoint=unix:///csi/csi.sock
+            - --node-id=$(NODE_NAME)
+            - --base-path={{ .Values.basePath }}
+            - --fence-token=$(FENCE_TOKEN)
+            - --fence-mode={{ .Values.fence.mode }}
+            {{- with .Values.fence.id }}
+            - --fence-id={{ . }}
+            {{- end }}
+            - --orphan-reclaim={{ .Values.orphanReclaim.enabled }}
+            - --orphan-grace-period={{ .Values.orphanReclaim.gracePeriod }}
+            - --reconcile-interval={{ .Values.orphanReclaim.reconcileInterval }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: FENCE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "csi-driver-dirpath.fenceSecretName" . }}
+                  key: {{ .Values.fence.existingSecretKey }}
+          securityContext:
+            privileged: true
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: pods-dir
+              mountPath: {{ .Values.kubeletRootDir }}/pods
+              mountPropagation: Bidirectional
+            - name: base-path
+              mountPath: {{ .Values.basePath }}
+              mountPropagation: Bidirectional
+        - name: node-driver-registrar
+          image: {{ .Values.sidecars.nodeDriverRegistrar.image }}
+          imagePullPolicy: {{ .Values.sidecars.nodeDriverRegistrar.pullPolicy }}
+          args:
+            - --csi-address=/csi/csi.sock
+            - --kubelet-registration-path={{ .Values.kubeletRootDir }}/plugins/{{ .Values.driverName }}/csi.sock
+          resources:
+            {{- toYaml .Values.sidecars.nodeDriverRegistrar.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+        - name: external-provisioner
+          image: {{ .Values.sidecars.externalProvisioner.image }}
+          imagePullPolicy: {{ .Values.sidecars.externalProvisioner.pullPolicy }}
+          args:
+            - --csi-address=/csi/csi.sock
+            - --feature-gates=Topology=true
+            - --enable-capacity=false
+            - --node-deployment=true
+            - --node-deployment-immediate-binding=false
+            - --strict-topology=true
+            - --immediate-topology=false
+            - --worker-threads={{ .Values.sidecars.externalProvisioner.workerThreads }}
+            - --retry-interval-start={{ .Values.sidecars.externalProvisioner.retryIntervalStart }}
+            - --retry-interval-max={{ .Values.sidecars.externalProvisioner.retryIntervalMax }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            {{- toYaml .Values.sidecars.externalProvisioner.resources | nindent 12 }}
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: {{ .Values.kubeletRootDir }}/plugins/{{ .Values.driverName }}
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: {{ .Values.kubeletRootDir }}/plugins_registry
+            type: Directory
+        - name: pods-dir
+          hostPath:
+            path: {{ .Values.kubeletRootDir }}/pods
+            type: Directory
+        - name: base-path
+          hostPath:
+            path: {{ .Values.basePath }}
+            type: Directory
