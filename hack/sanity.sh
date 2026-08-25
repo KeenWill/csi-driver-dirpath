@@ -3,6 +3,7 @@ set -euo pipefail
 
 work_dir="$(mktemp -d)"
 socket="${work_dir}/csi.sock"
+base_path="${work_dir}/base"
 
 cleanup() {
   if [[ -n "${driver_pid:-}" ]]; then
@@ -14,7 +15,15 @@ cleanup() {
 trap cleanup EXIT
 
 go build -o "${work_dir}/dirpath-plugin" ./cmd/dirpath-plugin
-"${work_dir}/dirpath-plugin" --endpoint="unix://${socket}" --node-id=sanity-node &
+mkdir -p "${base_path}"
+printf '%s' sanity-fence >"${base_path}/.dirpath-fence"
+"${work_dir}/dirpath-plugin" \
+  --endpoint="unix://${socket}" \
+  --node-id=sanity-node \
+  --base-path="${base_path}" \
+  --fence-token=sanity-fence \
+  --mount-mode=noop \
+  --orphan-reclaim=false &
 driver_pid=$!
 
 for _ in {1..50}; do

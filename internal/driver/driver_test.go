@@ -4,6 +4,8 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -12,7 +14,7 @@ import (
 )
 
 func TestCreateVolumeIsIdempotent(t *testing.T) {
-	d := testDriver()
+	d := testDriver(t)
 	req := &csi.CreateVolumeRequest{
 		Name:               "pvc-1",
 		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1024},
@@ -36,7 +38,7 @@ func TestCreateVolumeIsIdempotent(t *testing.T) {
 }
 
 func TestCreateVolumeRejectsChangedRequest(t *testing.T) {
-	d := testDriver()
+	d := testDriver(t)
 	req := &csi.CreateVolumeRequest{Name: "pvc-1", CapacityRange: &csi.CapacityRange{RequiredBytes: 1024}, VolumeCapabilities: testCapabilities()}
 	if _, err := d.CreateVolume(context.Background(), req); err != nil {
 		t.Fatal(err)
@@ -48,7 +50,7 @@ func TestCreateVolumeRejectsChangedRequest(t *testing.T) {
 }
 
 func TestDeleteVolumeIsIdempotent(t *testing.T) {
-	d := testDriver()
+	d := testDriver(t)
 	for range 2 {
 		if _, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: "missing"}); err != nil {
 			t.Fatal(err)
@@ -56,8 +58,13 @@ func TestDeleteVolumeIsIdempotent(t *testing.T) {
 	}
 }
 
-func testDriver() *Driver {
-	return New(Config{NodeID: "node-a", Version: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+func testDriver(t *testing.T) *Driver {
+	t.Helper()
+	basePath := t.TempDir()
+	if err := os.WriteFile(filepath.Join(basePath, ".dirpath-fence"), []byte("test-fence"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return New(Config{NodeID: "node-a", Version: "test", BasePath: basePath, FenceToken: "test-fence", MountMode: "noop"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 func testCapabilities() []*csi.VolumeCapability {
