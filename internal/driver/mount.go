@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -23,7 +26,7 @@ func (linuxMounter) Mount(source, target string, readOnly bool) error {
 		return err
 	}
 	if readOnly {
-		if err := unix.Mount("", target, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, ""); err != nil {
+		if err := makeMountReadOnly(target); err != nil {
 			_ = unix.Unmount(target, unix.MNT_DETACH)
 			return err
 		}
@@ -56,19 +59,107 @@ func (noopMounter) Mounted(string) (bool, bool, error) {
 }
 
 func mountpointInProc(target string) (bool, error) {
-	file, err := os.Open("/proc/self/mountinfo")
+	resolved, err := filepath.EvalSymlinks(target)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		fields := strings.Fields(scanner.Text())
-		if len(fields) > 4 && unescapeMountInfo(fields[4]) == target {
+	mounts, err := mountedPathsAtOrBelow(resolved)
+	if err != nil {
+		return false, err
+	}
+	for _, mount := range mounts {
+		if mount == filepath.Clean(resolved) {
 			return true, nil
 		}
 	}
-	return false, scanner.Err()
+	return false, nil
+}
+
+type readOnlyMountOps struct {
+	setRecursive func(string) error
+	mountPoints  func(string) ([]string, error)
+	remount      func(string) error
+}
+
+func makeMountReadOnly(target string) error {
+	ops := readOnlyMountOps{
+		setRecursive: func(path string) error {
+			return unix.MountSetattr(unix.AT_FDCWD, path, unix.AT_RECURSIVE, &unix.MountAttr{Attr_set: unix.MOUNT_ATTR_RDONLY})
+		},
+		mountPoints: mountedPathsAtOrBelow,
+		remount: func(path string) error {
+			return unix.Mount("", path, "", unix.MS_BIND|unix.MS_REMOUNT|unix.MS_RDONLY, "")
+		},
+	}
+	return applyRecursiveReadOnly(target, ops)
+}
+
+func applyRecursiveReadOnly(target string, ops readOnlyMountOps) error {
+	if err := ops.setRecursive(target); err == nil {
+		return nil
+	} else if !errors.Is(err, unix.ENOSYS) && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.EOPNOTSUPP) {
+		return fmt.Errorf("set recursive read-only mount attribute: %w", err)
+	}
+	mounts, err := ops.mountPoints(target)
+	if err != nil {
+		return fmt.Errorf("list recursive bind mounts: %w", err)
+	}
+	if len(mounts) == 0 {
+		return fmt.Errorf("recursive bind mount is absent from mountinfo")
+	}
+	for _, mount := range mounts {
+		if err := ops.remount(mount); err != nil {
+			return fmt.Errorf("remount %s read-only: %w", mount, err)
+		}
+	}
+	return nil
+}
+
+func mountedPathsAtOrBelow(root string) ([]string, error) {
+	resolved, err := filepath.EvalSymlinks(root)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	file, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return mountPointsAtOrBelow(file, resolved)
+}
+
+func mountPointsAtOrBelow(reader io.Reader, root string) ([]string, error) {
+	root = filepath.Clean(root)
+	seen := make(map[string]struct{})
+	var mounts []string
+	scanner := bufio.NewScanner(reader)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) <= 4 {
+			continue
+		}
+		mount := filepath.Clean(unescapeMountInfo(fields[4]))
+		relative, err := filepath.Rel(root, mount)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			continue
+		}
+		if _, exists := seen[mount]; exists {
+			continue
+		}
+		seen[mount] = struct{}{}
+		mounts = append(mounts, mount)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(mounts, func(i, j int) bool { return len(mounts[i]) > len(mounts[j]) })
+	return mounts, nil
 }
 
 func sameFile(source, target string) (bool, error) {

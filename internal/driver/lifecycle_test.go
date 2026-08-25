@@ -76,6 +76,37 @@ func TestDeleteVolumeRemovesDirectoryAndMetadata(t *testing.T) {
 	}
 }
 
+func TestDeleteVolumeRefusesNestedMount(t *testing.T) {
+	d := testDriver(t)
+	created, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{Name: "pvc-mounted-delete", VolumeCapabilities: testCapabilities()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := mustVolumeID(t, created.GetVolume().GetVolumeId())
+	volumePath := d.store.volumePath(id)
+	dataPath := filepath.Join(volumePath, "nested", "data")
+	if err := os.MkdirAll(filepath.Dir(dataPath), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dataPath, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.store.mountPoints = func(path string) ([]string, error) {
+		return []string{filepath.Join(path, "nested")}, nil
+	}
+
+	_, err = d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: string(id)})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("DeleteVolume error = %v, want FailedPrecondition", err)
+	}
+	if content, readErr := os.ReadFile(dataPath); readErr != nil || string(content) != "keep" {
+		t.Fatalf("nested data after refused deletion = %q, %v", content, readErr)
+	}
+	if _, err := os.Stat(d.store.metadataPath(id)); err != nil {
+		t.Fatalf("metadata removed after refused deletion: %v", err)
+	}
+}
+
 func TestReconcileDeletesOrphanAfterGracePeriod(t *testing.T) {
 	d := testDriver(t)
 	d.config.OrphanGracePeriod = time.Minute

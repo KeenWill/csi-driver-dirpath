@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"google.golang.org/grpc/codes"
@@ -108,6 +109,9 @@ func (d *Driver) DeleteVolume(_ context.Context, req *csi.DeleteVolumeRequest) (
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if err := d.store.delete(id); err != nil {
+		if errors.Is(err, errVolumeMounted) {
+			return nil, status.Errorf(codes.FailedPrecondition, "delete volume: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "delete volume: %v", err)
 	}
 	d.log.Info("deleted volume", "volume_id", id)

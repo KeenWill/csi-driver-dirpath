@@ -2,10 +2,13 @@ package driver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
+
+var errVolumeMounted = errors.New("volume contains mounted paths")
 
 type volumeMetadata struct {
 	ID            VolumeID          `json:"id"`
@@ -19,6 +22,7 @@ type volumeStore struct {
 	volumes       string
 	metadata      string
 	removeAll     func(string) error
+	mountPoints   func(string) ([]string, error)
 	syncDirectory func(string) error
 }
 
@@ -27,6 +31,7 @@ func newVolumeStore(basePath BasePath) *volumeStore {
 		volumes:       filepath.Join(string(basePath), "volumes"),
 		metadata:      filepath.Join(string(basePath), ".dirpath-meta", "volumes"),
 		removeAll:     os.RemoveAll,
+		mountPoints:   mountedPathsAtOrBelow,
 		syncDirectory: syncDirectory,
 	}
 }
@@ -92,7 +97,7 @@ func (s *volumeStore) ensureDirectory(id VolumeID) error {
 }
 
 func (s *volumeStore) delete(id VolumeID) error {
-	if err := s.removeAll(s.volumePath(id)); err != nil {
+	if err := s.removeVolumeDirectory(s.volumePath(id)); err != nil {
 		return fmt.Errorf("remove volume directory: %w", err)
 	}
 	if err := s.syncIfExists(s.volumes); err != nil {
@@ -111,7 +116,7 @@ func (s *volumeStore) deleteEntry(name string) error {
 	if filepath.Base(name) != name || name == "." || name == ".." {
 		return fmt.Errorf("invalid directory entry %q", name)
 	}
-	if err := s.removeAll(filepath.Join(s.volumes, name)); err != nil {
+	if err := s.removeVolumeDirectory(filepath.Join(s.volumes, name)); err != nil {
 		return err
 	}
 	if err := s.syncIfExists(s.volumes); err != nil {
@@ -126,6 +131,17 @@ func (s *volumeStore) deleteEntry(name string) error {
 		}
 	}
 	return nil
+}
+
+func (s *volumeStore) removeVolumeDirectory(path string) error {
+	mounts, err := s.mountPoints(path)
+	if err != nil {
+		return fmt.Errorf("inspect volume mounts: %w", err)
+	}
+	if len(mounts) != 0 {
+		return fmt.Errorf("%w: %v", errVolumeMounted, mounts)
+	}
+	return s.removeAll(path)
 }
 
 func (s *volumeStore) mkdirAllDurable(path string, mode os.FileMode) error {
