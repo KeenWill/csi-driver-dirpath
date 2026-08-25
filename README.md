@@ -7,6 +7,10 @@ Minimal CSI driver that provisions per-volume directories on an existing node mo
 
 Helper-pod-based local provisioners (e.g. local-path-provisioner) pay a full pod schedule/start/observe/delete round trip per volume, serialized through one controller — under bursty churn (CI runners), volume creation queues for minutes. A node-resident CSI plugin does the same work as one `mkdir` and one bind mount.
 
+## AI authorship
+
+This codebase is written by AI agents working under human direction and review. This CSI driver is used in production in a self-hosted cluster, but evaluate it as you would any young project and treat production use as your own risk assessment.
+
 ## License
 
 Apache-2.0
