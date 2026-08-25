@@ -13,7 +13,7 @@ spec:
     metadata:
       labels:
         {{- include "csi-driver-dirpath.selectorLabels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
+        {{- with omit .Values.podLabels "app.kubernetes.io/name" "app.kubernetes.io/instance" }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
       annotations:
@@ -84,7 +84,7 @@ spec:
           imagePullPolicy: {{ .Values.sidecars.nodeDriverRegistrar.pullPolicy }}
           args:
             - --csi-address=/csi/csi.sock
-            - --kubelet-registration-path={{ .Values.kubeletRootDir }}/plugins/{{ .Values.driverName }}/csi.sock
+            - --kubelet-registration-path={{ .Values.kubeletRootDir }}/plugins/{{ include "csi-driver-dirpath.driverName" . }}/csi.sock
           resources:
             {{- toYaml .Values.sidecars.nodeDriverRegistrar.resources | nindent 12 }}
           volumeMounts:
@@ -127,7 +127,7 @@ spec:
       volumes:
         - name: socket-dir
           hostPath:
-            path: {{ .Values.kubeletRootDir }}/plugins/{{ .Values.driverName }}
+            path: {{ .Values.kubeletRootDir }}/plugins/{{ include "csi-driver-dirpath.driverName" . }}
             type: DirectoryOrCreate
         - name: registration-dir
           hostPath:

@@ -28,6 +28,10 @@ app.kubernetes.io/name: {{ include "csi-driver-dirpath.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{- define "csi-driver-dirpath.driverName" -}}
+csi.dirpath.dev
+{{- end }}
+
 {{- define "csi-driver-dirpath.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create }}
 {{- default (include "csi-driver-dirpath.fullname" .) .Values.serviceAccount.name }}
