@@ -35,6 +35,11 @@ func validateCapabilities(capabilities []*csi.VolumeCapability) error {
 }
 
 func quotasRequested(parameters map[string]string) (bool, error) {
+	for key := range parameters {
+		if key != "quotas" {
+			return false, status.Errorf(codes.InvalidArgument, "unknown parameter %q", key)
+		}
+	}
 	value, present := parameters["quotas"]
 	if !present || value == "false" {
 		return false, nil

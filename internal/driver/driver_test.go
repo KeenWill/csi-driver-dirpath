@@ -123,6 +123,202 @@ func TestCreateVolumeStrictlyParsesQuotas(t *testing.T) {
 	}
 }
 
+func TestCreateVolumeRejectsUnknownParameters(t *testing.T) {
+	d := testDriver(t)
+	_, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-unknown-parameter",
+		Parameters:         map[string]string{"quota": "true"},
+		VolumeCapabilities: testCapabilities(),
+	})
+	if status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "unknown parameter") {
+		t.Fatalf("CreateVolume error = %v, want InvalidArgument unknown parameter", err)
+	}
+}
+
+func TestCompatibilityQueriesReportUnsupportedParameters(t *testing.T) {
+	d := testDriver(t)
+	created, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-query-unknown-parameter",
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parameters := map[string]string{"basePath": "/tmp"}
+	validated, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           created.GetVolume().GetVolumeId(),
+		Parameters:         parameters,
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.GetConfirmed() != nil || !strings.Contains(validated.GetMessage(), "unknown parameter") {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, want unconfirmed unknown parameter message", validated)
+	}
+
+	capacity, err := d.GetCapacity(context.Background(), &csi.GetCapacityRequest{Parameters: parameters})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capacity.GetAvailableCapacity() != 0 {
+		t.Fatalf("available capacity = %d, want 0", capacity.GetAvailableCapacity())
+	}
+}
+
+func TestValidateVolumeCapabilitiesReturnsNotFoundBeforeUnsupportedParameters(t *testing.T) {
+	response, err := testDriver(t).ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           "vol-missing",
+		Parameters:         map[string]string{"unknown": "value"},
+		VolumeCapabilities: testCapabilities(),
+	})
+	if status.Code(err) != codes.NotFound {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, error = %v, want NotFound", response, err)
+	}
+}
+
+func TestValidateVolumeCapabilitiesConfirmsMatchingLegacyParameters(t *testing.T) {
+	d := testDriver(t)
+	name := "pvc-validate-legacy-parameters"
+	id := deriveVolumeID(name)
+	parameters := map[string]string{"legacy.example/parameter": "value"}
+	if err := d.store.create(volumeMetadata{
+		ID:         id,
+		Name:       name,
+		NodeID:     d.config.NodeID,
+		Parameters: parameters,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           string(id),
+		Parameters:         parameters,
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetConfirmed() == nil || response.GetConfirmed().GetParameters()["legacy.example/parameter"] != "value" {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, want confirmed legacy parameters", response)
+	}
+}
+
+func TestCreateVolumeRetriesLegacyParameters(t *testing.T) {
+	d := testDriver(t)
+	name := "pvc-legacy-parameters"
+	id := deriveVolumeID(name)
+	parameters := map[string]string{"legacy.example/parameter": "value"}
+	if err := d.store.create(volumeMetadata{
+		ID:            id,
+		Name:          name,
+		NodeID:        d.config.NodeID,
+		CapacityBytes: 1024,
+		Parameters:    parameters,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               name,
+		CapacityRange:      &csi.CapacityRange{RequiredBytes: 1024},
+		Parameters:         parameters,
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetVolume().GetVolumeId() != string(id) || response.GetVolume().GetVolumeContext()["legacy.example/parameter"] != "value" {
+		t.Fatalf("CreateVolume response = %#v, want legacy volume", response)
+	}
+}
+
+func TestGetCapacityReturnsZeroForUnsupportedCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		capability *csi.VolumeCapability
+	}{
+		{
+			name: "block",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+			},
+		},
+		{
+			name: "multi node writer",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_MULTI_NODE_MULTI_WRITER},
+			},
+		},
+		{
+			name: "mount flags",
+			capability: &csi.VolumeCapability{
+				AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{MountFlags: []string{"noatime"}}},
+				AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response, err := testDriver(t).GetCapacity(context.Background(), &csi.GetCapacityRequest{
+				VolumeCapabilities: []*csi.VolumeCapability{test.capability},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if response.GetAvailableCapacity() != 0 {
+				t.Fatalf("available capacity = %d, want 0", response.GetAvailableCapacity())
+			}
+		})
+	}
+}
+
+func TestGetCapacityChecksFenceBeforeUnsupportedQueries(t *testing.T) {
+	for _, request := range []*csi.GetCapacityRequest{
+		{
+			VolumeCapabilities: []*csi.VolumeCapability{{
+				AccessType: &csi.VolumeCapability_Block{Block: &csi.VolumeCapability_BlockVolume{}},
+				AccessMode: &csi.VolumeCapability_AccessMode{
+					Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+				},
+			}},
+		},
+		{Parameters: map[string]string{"unknown": "value"}},
+	} {
+		d := testDriver(t)
+		if err := os.Remove(filepath.Join(string(d.config.BasePath), ".dirpath-fence")); err != nil {
+			t.Fatal(err)
+		}
+		response, err := d.GetCapacity(context.Background(), request)
+		if status.Code(err) != codes.FailedPrecondition {
+			t.Fatalf("GetCapacity response = %#v, error = %v, want FailedPrecondition", response, err)
+		}
+	}
+}
+
+func TestValidateVolumeCapabilitiesChecksFenceBeforeUnsupportedParameters(t *testing.T) {
+	d := testDriver(t)
+	created, err := d.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name:               "pvc-fenced-query-parameter",
+		VolumeCapabilities: testCapabilities(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(string(d.config.BasePath), ".dirpath-fence")); err != nil {
+		t.Fatal(err)
+	}
+	response, err := d.ValidateVolumeCapabilities(context.Background(), &csi.ValidateVolumeCapabilitiesRequest{
+		VolumeId:           created.GetVolume().GetVolumeId(),
+		Parameters:         map[string]string{"unknown": "value"},
+		VolumeCapabilities: testCapabilities(),
+	})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("ValidateVolumeCapabilities response = %#v, error = %v, want FailedPrecondition", response, err)
+	}
+}
+
 func TestValidateConfigRejectsInvalidReconciliationDurations(t *testing.T) {
 	for _, test := range []struct {
 		name     string
