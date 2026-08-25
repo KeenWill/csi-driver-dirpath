@@ -35,11 +35,10 @@ func (linuxMounter) Mount(source, target string, readOnly bool) error {
 }
 
 func (linuxMounter) Unmount(target string) error {
-	err := unix.Unmount(target, 0)
-	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOENT) {
-		return nil
-	}
-	return err
+	return unmountTree(target, unmountOps{
+		mountPoints: mountedPathsAtOrBelow,
+		unmount:     func(path string) error { return unix.Unmount(path, 0) },
+	})
 }
 
 func (linuxMounter) Mounted(target string) (bool, bool, error) {
@@ -82,6 +81,25 @@ type readOnlyMountOps struct {
 	setRecursive func(string) error
 	mountPoints  func(string) ([]string, error)
 	remount      func(string) error
+}
+
+type unmountOps struct {
+	mountPoints func(string) ([]string, error)
+	unmount     func(string) error
+}
+
+func unmountTree(target string, ops unmountOps) error {
+	mounts, err := ops.mountPoints(target)
+	if err != nil {
+		return fmt.Errorf("list recursive bind mounts: %w", err)
+	}
+	sortMountsDeepestFirst(mounts)
+	for _, mount := range mounts {
+		if err := ops.unmount(mount); err != nil && !errors.Is(err, unix.EINVAL) && !errors.Is(err, unix.ENOENT) {
+			return fmt.Errorf("unmount %s: %w", mount, err)
+		}
+	}
+	return nil
 }
 
 func makeMountReadOnly(target string) error {
@@ -136,7 +154,6 @@ func mountedPathsAtOrBelow(root string) ([]string, error) {
 
 func mountPointsAtOrBelow(reader io.Reader, root string) ([]string, error) {
 	root = filepath.Clean(root)
-	seen := make(map[string]struct{})
 	var mounts []string
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
@@ -149,17 +166,17 @@ func mountPointsAtOrBelow(reader io.Reader, root string) ([]string, error) {
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			continue
 		}
-		if _, exists := seen[mount]; exists {
-			continue
-		}
-		seen[mount] = struct{}{}
 		mounts = append(mounts, mount)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	sort.Slice(mounts, func(i, j int) bool { return len(mounts[i]) > len(mounts[j]) })
+	sortMountsDeepestFirst(mounts)
 	return mounts, nil
+}
+
+func sortMountsDeepestFirst(mounts []string) {
+	sort.SliceStable(mounts, func(i, j int) bool { return len(mounts[i]) > len(mounts[j]) })
 }
 
 func sameFile(source, target string) (bool, error) {

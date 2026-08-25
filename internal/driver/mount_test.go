@@ -62,3 +62,23 @@ func TestMountPointsAtOrBelow(t *testing.T) {
 		t.Fatalf("mounts = %v, want %v", mounts, want)
 	}
 }
+
+func TestUnmountTreeUnmountsNestedMountsDeepestFirst(t *testing.T) {
+	var unmounted []string
+	err := unmountTree("/target", unmountOps{
+		mountPoints: func(string) ([]string, error) {
+			return []string{"/target", "/target/nested", "/target/nested/deep"}, nil
+		},
+		unmount: func(path string) error {
+			unmounted = append(unmounted, path)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/target/nested/deep", "/target/nested", "/target"}
+	if !reflect.DeepEqual(unmounted, want) {
+		t.Fatalf("unmounted paths = %v, want %v", unmounted, want)
+	}
+}

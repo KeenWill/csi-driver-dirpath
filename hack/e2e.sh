@@ -34,6 +34,12 @@ for node in "${nodes[@]}"; do
 done
 
 "${kubectl_command}" apply -f deploy/kind.yaml
+for verb in get list watch create update delete; do
+  "${kubectl_command}" auth can-i "${verb}" leases.coordination.k8s.io \
+    --namespace kube-system \
+    --as system:serviceaccount:kube-system:csi-dirpath \
+    --quiet
+done
 "${kubectl_command}" -n kube-system rollout status daemonset/csi-dirpath --timeout=180s
 "${kubectl_command}" apply -f hack/e2e-workload.yaml
 "${kubectl_command}" wait --for=condition=Ready pod/dirpath-e2e --timeout=180s
