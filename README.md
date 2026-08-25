@@ -14,8 +14,8 @@ Prepare the configured base path on every target node and write the exact fence 
 Install the OCI chart and optionally create its StorageClass:
 
 ```sh
-helm install csi-driver-dirpath oci://ghcr.io/keenwill/csi-driver-dirpath \
-  --version v0.1.1 \
+helm install csi-driver-dirpath oci://ghcr.io/keenwill/charts/csi-driver-dirpath \
+  --version v0.1.2 \
   --namespace kube-system \
   --set-file fence.token=/path/to/fence-token \
   --set storageClass.create=true

@@ -42,6 +42,8 @@ spec:
         - name: dirpath-plugin
           image: {{ include "csi-driver-dirpath.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /dirpath-plugin
           args:
             - --endpoint=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)

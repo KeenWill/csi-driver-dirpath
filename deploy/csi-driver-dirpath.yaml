@@ -6,10 +6,10 @@ metadata:
   name: csi-driver-dirpath
   namespace: kube-system
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 ---
 # Source: csi-driver-dirpath/templates/secret.yaml
@@ -19,10 +19,10 @@ metadata:
   name: csi-driver-dirpath-fence
   namespace: kube-system
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 type: Opaque
 stringData:
@@ -34,10 +34,10 @@ kind: StorageClass
 metadata:
   name: dirpath
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 provisioner: csi.dirpath.dev
 parameters:
@@ -51,10 +51,10 @@ kind: ClusterRole
 metadata:
   name: csi-driver-dirpath
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 rules:
   - apiGroups: [""]
@@ -82,10 +82,10 @@ kind: ClusterRoleBinding
 metadata:
   name: csi-driver-dirpath
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 subjects:
   - kind: ServiceAccount
@@ -103,10 +103,10 @@ metadata:
   name: csi-driver-dirpath
   namespace: kube-system
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   selector:
@@ -119,7 +119,7 @@ spec:
         app.kubernetes.io/name: csi-driver-dirpath
         app.kubernetes.io/instance: csi-driver-dirpath
       annotations:
-        checksum/fence-secret: 476b10997a674350b23099296fa8a9bf9d67516e056534713c5aa59a4e84094b
+        checksum/fence-secret: 79d4246edcdf5c1bdce773524d6d6272ac33dc3efd01de9341c9e1e99448c251
     spec:
       serviceAccountName: csi-driver-dirpath
       priorityClassName: system-node-critical
@@ -127,8 +127,10 @@ spec:
         - operator: Exists
       containers:
         - name: dirpath-plugin
-          image: ghcr.io/keenwill/csi-driver-dirpath:v0.1.1
+          image: ghcr.io/keenwill/csi-driver-dirpath:v0.1.2
           imagePullPolicy: IfNotPresent
+          command:
+            - /dirpath-plugin
           args:
             - --endpoint=unix:///csi/csi.sock
             - --node-id=$(NODE_NAME)
@@ -230,10 +232,10 @@ kind: CSIDriver
 metadata:
   name: csi.dirpath.dev
   labels:
-    helm.sh/chart: csi-driver-dirpath-v0.1.1
+    helm.sh/chart: csi-driver-dirpath-v0.1.2
     app.kubernetes.io/name: csi-driver-dirpath
     app.kubernetes.io/instance: csi-driver-dirpath
-    app.kubernetes.io/version: "v0.1.1"
+    app.kubernetes.io/version: "v0.1.2"
     app.kubernetes.io/managed-by: Helm
 spec:
   attachRequired: false
