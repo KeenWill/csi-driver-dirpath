@@ -37,6 +37,17 @@ func quotasRequested(parameters map[string]string) (bool, error) {
 	return false, status.Error(codes.InvalidArgument, "quotas must be true or false")
 }
 
+func requestVolumeID(value string) (VolumeID, error) {
+	if value == "" {
+		return "", status.Error(codes.InvalidArgument, "volume id is required")
+	}
+	id, err := parseVolumeID(value)
+	if err != nil {
+		return "", status.Error(codes.InvalidArgument, err.Error())
+	}
+	return id, nil
+}
+
 func requestedCapacity(capacity *csi.CapacityRange) (int64, error) {
 	if capacity == nil {
 		return 0, nil

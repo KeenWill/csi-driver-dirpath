@@ -16,13 +16,13 @@ const (
 
 type Config struct {
 	Endpoint          string
-	NodeID            string
+	NodeID            NodeID
 	Version           string
-	BasePath          string
-	FenceToken        string
-	FenceMode         string
+	BasePath          BasePath
+	FenceToken        FenceToken
+	FenceMode         FenceMode
 	FenceID           string
-	MountMode         string
+	MountMode         MountMode
 	OrphanReclaim     bool
 	OrphanGracePeriod time.Duration
 	ReconcileInterval time.Duration
@@ -47,10 +47,10 @@ type Driver struct {
 
 func New(config Config, logger *slog.Logger) *Driver {
 	if config.FenceMode == "" {
-		config.FenceMode = "marker"
+		config.FenceMode = MarkerFence
 	}
 	if config.MountMode == "" {
-		config.MountMode = "real"
+		config.MountMode = RealMounts
 	}
 	d := &Driver{
 		config:      config,
@@ -60,7 +60,7 @@ func New(config Config, logger *slog.Logger) *Driver {
 		volumeLocks: newKeyedMutex(),
 		orphanSince: make(map[string]time.Time),
 	}
-	if config.MountMode == "noop" {
+	if config.MountMode == NoopMounts {
 		d.mounter = noopMounter{}
 	} else {
 		d.mounter = linuxMounter{}
@@ -78,7 +78,7 @@ func (d *Driver) validateConfig() error {
 	if d.config.FenceToken == "" {
 		return fmt.Errorf("fence-token is required")
 	}
-	if d.config.MountMode != "real" && d.config.MountMode != "noop" {
+	if d.config.MountMode != RealMounts && d.config.MountMode != NoopMounts {
 		return fmt.Errorf("mount-mode must be real or noop")
 	}
 	if d.config.ReconcileInterval <= 0 {
@@ -98,5 +98,5 @@ func (d *Driver) checkFence() error {
 }
 
 func (d *Driver) topology() *csi.Topology {
-	return &csi.Topology{Segments: map[string]string{topologyKey: d.config.NodeID}}
+	return &csi.Topology{Segments: map[string]string{topologyKey: string(d.config.NodeID)}}
 }

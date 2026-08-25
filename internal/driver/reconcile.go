@@ -15,19 +15,19 @@ import (
 )
 
 type pvLister interface {
-	List(context.Context) (map[string]struct{}, error)
+	List(context.Context) (map[VolumeID]struct{}, error)
 }
 
 type apiPVLister struct {
 	url       string
 	tokenPath string
 	client    *http.Client
-	nodeID    string
+	nodeID    NodeID
 }
 
 const serviceAccountPath = "/var/run/secrets/kubernetes.io/serviceaccount"
 
-func inClusterPVLister(nodeID string) (pvLister, error) {
+func inClusterPVLister(nodeID NodeID) (pvLister, error) {
 	host, port := os.Getenv("KUBERNETES_SERVICE_HOST"), os.Getenv("KUBERNETES_SERVICE_PORT")
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("Kubernetes service environment is not present")
@@ -52,7 +52,7 @@ func inClusterPVLister(nodeID string) (pvLister, error) {
 	}, nil
 }
 
-func (l *apiPVLister) List(ctx context.Context) (map[string]struct{}, error) {
+func (l *apiPVLister) List(ctx context.Context) (map[VolumeID]struct{}, error) {
 	token, err := os.ReadFile(l.tokenPath)
 	if err != nil {
 		return nil, fmt.Errorf("read service account token: %w", err)
@@ -77,12 +77,16 @@ func (l *apiPVLister) List(ctx context.Context) (map[string]struct{}, error) {
 	if err := json.NewDecoder(response.Body).Decode(&list); err != nil {
 		return nil, err
 	}
-	volumes := make(map[string]struct{})
+	volumes := make(map[VolumeID]struct{})
 	for _, item := range list.Items {
 		if item.Spec.CSI == nil || item.Spec.CSI.Driver != driverName || !pvBelongsToNode(item, l.nodeID) {
 			continue
 		}
-		volumes[item.Spec.CSI.VolumeHandle] = struct{}{}
+		id, err := parseVolumeID(item.Spec.CSI.VolumeHandle)
+		if err != nil {
+			return nil, fmt.Errorf("invalid volume handle %q: %w", item.Spec.CSI.VolumeHandle, err)
+		}
+		volumes[id] = struct{}{}
 	}
 	return volumes, nil
 }
@@ -111,7 +115,7 @@ type persistentVolume struct {
 	} `json:"spec"`
 }
 
-func pvBelongsToNode(pv persistentVolume, nodeID string) bool {
+func pvBelongsToNode(pv persistentVolume, nodeID NodeID) bool {
 	if pv.Spec.NodeAffinity == nil || pv.Spec.NodeAffinity.Required == nil {
 		return false
 	}
@@ -121,7 +125,7 @@ func pvBelongsToNode(pv persistentVolume, nodeID string) bool {
 				continue
 			}
 			for _, value := range expression.Values {
-				if value == nodeID {
+				if value == string(nodeID) {
 					return true
 				}
 			}
@@ -154,47 +158,53 @@ func (d *Driver) reconcile(ctx context.Context, now time.Time) {
 		d.log.Error("list volume directories", "error", err)
 		return
 	}
-	directories := make(map[string]struct{}, len(entries))
+	directories := make(map[VolumeID]struct{}, len(entries))
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		id := entry.Name()
-		directories[id] = struct{}{}
-		if _, exists := pvs[id]; exists {
-			d.clearOrphan(id)
-			continue
+		name := entry.Name()
+		id, idErr := parseVolumeID(name)
+		if idErr == nil {
+			directories[id] = struct{}{}
+			if _, exists := pvs[id]; exists {
+				d.clearOrphan(name)
+				continue
+			}
 		}
-		firstSeen, firstObservation := d.observeOrphan(id, now)
+		firstSeen, firstObservation := d.observeOrphan(name, now)
 		if firstObservation {
-			d.log.Warn("found orphan volume directory", "volume_id", id)
+			d.log.Warn("found orphan volume directory", "volume_id", name)
 			continue
 		}
 		if now.Sub(firstSeen) < d.config.OrphanGracePeriod {
 			continue
 		}
-		unlock := d.volumeLocks.lock(id)
-		if !d.orphanEligible(id, now) {
+		unlock := func() {}
+		if idErr == nil {
+			unlock = d.volumeLocks.lock(id)
+		}
+		if !d.orphanEligible(name, now) {
 			unlock()
 			continue
 		}
 		if err := d.checkFence(); err != nil {
 			unlock()
-			d.log.Error("skipping orphan deletion because fence failed", "volume_id", id, "error", err)
+			d.log.Error("skipping orphan deletion because fence failed", "volume_id", name, "error", err)
 			continue
 		}
-		if err := d.store.deleteEntry(id); err != nil {
+		if err := d.store.deleteEntry(name); err != nil {
 			unlock()
-			d.log.Error("delete orphan volume directory", "volume_id", id, "error", err)
+			d.log.Error("delete orphan volume directory", "volume_id", name, "error", err)
 			continue
 		}
-		d.clearOrphan(id)
+		d.clearOrphan(name)
 		unlock()
-		d.log.Info("deleted orphan volume directory", "volume_id", id)
+		d.log.Info("deleted orphan volume directory", "volume_id", name)
 	}
 	for id := range pvs {
 		if _, exists := directories[id]; !exists {
-			d.log.Error("persistent volume directory is missing; it will be recreated empty on publish", "volume_id", id, "path", filepath.Join(d.store.volumes, id))
+			d.log.Error("persistent volume directory is missing; it will be recreated empty on publish", "volume_id", id, "path", filepath.Join(d.store.volumes, string(id)))
 		}
 	}
 }

@@ -7,7 +7,7 @@ import (
 
 func TestCreateDurablySyncsMetadataPath(t *testing.T) {
 	basePath := t.TempDir()
-	store := newVolumeStore(basePath)
+	store := newVolumeStore(BasePath(basePath))
 	originalSync := store.syncDirectory
 	var synced []string
 	store.syncDirectory = func(path string) error {

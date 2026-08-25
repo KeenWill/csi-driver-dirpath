@@ -51,7 +51,7 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	id := volumeID(req.GetName())
+	id := deriveVolumeID(req.GetName())
 	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
@@ -67,7 +67,7 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 		if err := d.store.ensureDirectory(id); err != nil {
 			return nil, status.Errorf(codes.Internal, "recreate volume directory: %v", err)
 		}
-		d.clearOrphan(id)
+		d.clearOrphan(string(id))
 		return d.createVolumeResponse(existing), nil
 	} else if !isNotExist(err) {
 		return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
@@ -80,14 +80,14 @@ func (d *Driver) CreateVolume(_ context.Context, req *csi.CreateVolumeRequest) (
 	if err := d.store.create(v); err != nil {
 		return nil, status.Errorf(codes.Internal, "create volume: %v", err)
 	}
-	d.clearOrphan(id)
+	d.clearOrphan(string(id))
 	d.log.Info("created volume", "volume_id", id, "capacity_bytes", capacity)
 	return d.createVolumeResponse(v), nil
 }
 
 func (d *Driver) createVolumeResponse(v volumeMetadata) *csi.CreateVolumeResponse {
 	return &csi.CreateVolumeResponse{Volume: &csi.Volume{
-		VolumeId:           v.ID,
+		VolumeId:           string(v.ID),
 		CapacityBytes:      v.CapacityBytes,
 		VolumeContext:      cloneMap(v.Parameters),
 		AccessibleTopology: []*csi.Topology{d.topology()},
@@ -95,36 +95,32 @@ func (d *Driver) createVolumeResponse(v volumeMetadata) *csi.CreateVolumeRespons
 }
 
 func (d *Driver) DeleteVolume(_ context.Context, req *csi.DeleteVolumeRequest) (*csi.DeleteVolumeResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume id is required")
-	}
-	if !validVolumeID(req.GetVolumeId()) {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	id, err := requestVolumeID(req.GetVolumeId())
+	if err != nil {
+		return nil, err
 	}
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if err := d.store.delete(req.GetVolumeId()); err != nil {
+	if err := d.store.delete(id); err != nil {
 		return nil, status.Errorf(codes.Internal, "delete volume: %v", err)
 	}
-	d.log.Info("deleted volume", "volume_id", req.GetVolumeId())
+	d.log.Info("deleted volume", "volume_id", id)
 	return &csi.DeleteVolumeResponse{}, nil
 }
 
 func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.ValidateVolumeCapabilitiesRequest) (*csi.ValidateVolumeCapabilitiesResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume id is required")
+	id, err := requestVolumeID(req.GetVolumeId())
+	if err != nil {
+		return nil, err
 	}
 	if len(req.GetVolumeCapabilities()) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "volume capabilities are required")
-	}
-	if !validVolumeID(req.GetVolumeId()) {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
 	}
 	if quotas, err := quotasRequested(req.GetParameters()); err != nil {
 		return nil, err
@@ -134,12 +130,12 @@ func (d *Driver) ValidateVolumeCapabilities(_ context.Context, req *csi.Validate
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if _, err := d.store.load(req.GetVolumeId()); err != nil {
+	if _, err := d.store.load(id); err != nil {
 		if isNotExist(err) {
 			return nil, status.Error(codes.NotFound, "volume not found")
 		}
@@ -162,7 +158,7 @@ func (d *Driver) GetCapacity(_ context.Context, req *csi.GetCapacityRequest) (*c
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if req.GetAccessibleTopology() != nil && req.GetAccessibleTopology().GetSegments()[topologyKey] != d.config.NodeID {
+	if req.GetAccessibleTopology() != nil && req.GetAccessibleTopology().GetSegments()[topologyKey] != string(d.config.NodeID) {
 		return &csi.GetCapacityResponse{}, nil
 	}
 	available, err := availableBytes(d.config.BasePath)
@@ -177,14 +173,14 @@ func (d *Driver) topologyAllowed(requirement *csi.TopologyRequirement) bool {
 		return true
 	}
 	for _, topology := range requirement.GetRequisite() {
-		if topology.GetSegments()[topologyKey] == d.config.NodeID {
+		if topology.GetSegments()[topologyKey] == string(d.config.NodeID) {
 			return true
 		}
 	}
 	return false
 }
 
-func volumeID(name string) string {
+func deriveVolumeID(name string) VolumeID {
 	sum := sha256.Sum256([]byte(name))
-	return "vol-" + hex.EncodeToString(sum[:16])
+	return VolumeID("vol-" + hex.EncodeToString(sum[:16]))
 }

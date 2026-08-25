@@ -24,15 +24,13 @@ func (d *Driver) NodeGetInfo(context.Context, *csi.NodeGetInfoRequest) (*csi.Nod
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return &csi.NodeGetInfoResponse{NodeId: d.config.NodeID, AccessibleTopology: d.topology()}, nil
+	return &csi.NodeGetInfoResponse{NodeId: string(d.config.NodeID), AccessibleTopology: d.topology()}, nil
 }
 
 func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolumeRequest) (*csi.NodePublishVolumeResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume id is required")
-	}
-	if !validVolumeID(req.GetVolumeId()) {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	id, err := requestVolumeID(req.GetVolumeId())
+	if err != nil {
+		return nil, err
 	}
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target path is required")
@@ -47,25 +45,25 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	if _, err := d.store.load(req.GetVolumeId()); err != nil {
+	if _, err := d.store.load(id); err != nil {
 		if isNotExist(err) {
-			d.log.Error("volume metadata is missing; recreating empty scratch volume", "volume_id", req.GetVolumeId())
+			d.log.Error("volume metadata is missing; recreating empty scratch volume", "volume_id", id)
 		} else {
 			return nil, status.Errorf(codes.Internal, "read volume metadata: %v", err)
 		}
 	}
-	source := d.store.volumePath(req.GetVolumeId())
+	source := d.store.volumePath(id)
 	if _, err := os.Stat(source); os.IsNotExist(err) {
-		d.log.Error("volume directory is missing; recreating empty scratch volume", "volume_id", req.GetVolumeId())
+		d.log.Error("volume directory is missing; recreating empty scratch volume", "volume_id", id)
 		if err := d.checkFence(); err != nil {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
-		if err := d.store.ensureDirectory(req.GetVolumeId()); err != nil {
+		if err := d.store.ensureDirectory(id); err != nil {
 			return nil, status.Errorf(codes.Internal, "recreate volume directory: %v", err)
 		}
 	} else if err != nil {
@@ -97,16 +95,14 @@ func (d *Driver) NodePublishVolume(_ context.Context, req *csi.NodePublishVolume
 	if err := d.mounter.Mount(source, req.GetTargetPath(), req.GetReadonly()); err != nil {
 		return nil, status.Errorf(codes.Internal, "bind mount volume: %v", err)
 	}
-	d.log.Info("published volume", "volume_id", req.GetVolumeId(), "target_path", req.GetTargetPath())
+	d.log.Info("published volume", "volume_id", id, "target_path", req.GetTargetPath())
 	return &csi.NodePublishVolumeResponse{}, nil
 }
 
 func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVolumeRequest) (*csi.NodeUnpublishVolumeResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume id is required")
-	}
-	if !validVolumeID(req.GetVolumeId()) {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	id, err := requestVolumeID(req.GetVolumeId())
+	if err != nil {
+		return nil, err
 	}
 	if req.GetTargetPath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "target path is required")
@@ -114,7 +110,7 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -125,16 +121,14 @@ func (d *Driver) NodeUnpublishVolume(_ context.Context, req *csi.NodeUnpublishVo
 	if err := os.Remove(req.GetTargetPath()); err != nil && !os.IsNotExist(err) {
 		return nil, status.Errorf(codes.Internal, "remove target path: %v", err)
 	}
-	d.log.Info("unpublished volume", "volume_id", req.GetVolumeId(), "target_path", req.GetTargetPath())
+	d.log.Info("unpublished volume", "volume_id", id, "target_path", req.GetTargetPath())
 	return &csi.NodeUnpublishVolumeResponse{}, nil
 }
 
 func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeStatsRequest) (*csi.NodeGetVolumeStatsResponse, error) {
-	if req.GetVolumeId() == "" {
-		return nil, status.Error(codes.InvalidArgument, "volume id is required")
-	}
-	if !validVolumeID(req.GetVolumeId()) {
-		return nil, status.Error(codes.InvalidArgument, "invalid volume id")
+	id, err := requestVolumeID(req.GetVolumeId())
+	if err != nil {
+		return nil, err
 	}
 	if req.GetVolumePath() == "" {
 		return nil, status.Error(codes.InvalidArgument, "volume path is required")
@@ -142,7 +136,7 @@ func (d *Driver) NodeGetVolumeStats(_ context.Context, req *csi.NodeGetVolumeSta
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	unlock := d.volumeLocks.lock(req.GetVolumeId())
+	unlock := d.volumeLocks.lock(id)
 	defer unlock()
 	if err := d.checkFence(); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())

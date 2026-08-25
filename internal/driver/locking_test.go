@@ -17,7 +17,7 @@ import (
 func TestCreateVolumeRechecksFenceAfterWaitingForLock(t *testing.T) {
 	d := testDriver(t)
 	request := &csi.CreateVolumeRequest{Name: "pvc-fence-race", VolumeCapabilities: testCapabilities()}
-	id := volumeID(request.Name)
+	id := deriveVolumeID(request.Name)
 	releaseLock := d.volumeLocks.lock(id)
 	result := make(chan error, 1)
 	go func() {
@@ -33,7 +33,7 @@ func TestCreateVolumeRechecksFenceAfterWaitingForLock(t *testing.T) {
 		}
 		runtime.Gosched()
 	}
-	if err := os.WriteFile(filepath.Join(d.config.BasePath, ".dirpath-fence"), []byte("wrong"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(string(d.config.BasePath), ".dirpath-fence"), []byte("wrong"), 0o600); err != nil {
 		releaseLock()
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestSlowDeleteDoesNotBlockUnrelatedCreate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slowID := slow.GetVolume().GetVolumeId()
+	slowID := mustVolumeID(t, slow.GetVolume().GetVolumeId())
 	slowPath := d.store.volumePath(slowID)
 	originalRemoveAll := d.store.removeAll
 	deleteStarted := make(chan struct{})
@@ -73,7 +73,7 @@ func TestSlowDeleteDoesNotBlockUnrelatedCreate(t *testing.T) {
 
 	deleteResult := make(chan error, 1)
 	go func() {
-		_, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: slowID})
+		_, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: string(slowID)})
 		deleteResult <- err
 	}()
 	<-deleteStarted

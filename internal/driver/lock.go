@@ -4,7 +4,7 @@ import "sync"
 
 type keyedMutex struct {
 	mu    sync.Mutex
-	locks map[string]*keyedLock
+	locks map[VolumeID]*keyedLock
 }
 
 type keyedLock struct {
@@ -13,10 +13,10 @@ type keyedLock struct {
 }
 
 func newKeyedMutex() *keyedMutex {
-	return &keyedMutex{locks: make(map[string]*keyedLock)}
+	return &keyedMutex{locks: make(map[VolumeID]*keyedLock)}
 }
 
-func (m *keyedMutex) lock(key string) func() {
+func (m *keyedMutex) lock(key VolumeID) func() {
 	m.mu.Lock()
 	entry := m.locks[key]
 	if entry == nil {
@@ -38,7 +38,7 @@ func (m *keyedMutex) lock(key string) func() {
 	}
 }
 
-func (m *keyedMutex) references(key string) int {
+func (m *keyedMutex) references(key VolumeID) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if entry := m.locks[key]; entry != nil {

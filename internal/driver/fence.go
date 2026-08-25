@@ -9,21 +9,21 @@ import (
 )
 
 type fence struct {
-	basePath string
-	token    string
-	mode     string
+	basePath BasePath
+	token    FenceToken
+	mode     FenceMode
 	id       string
 }
 
-func newFence(basePath, token, mode, id string) *fence {
+func newFence(basePath BasePath, token FenceToken, mode FenceMode, id string) *fence {
 	return &fence{basePath: basePath, token: token, mode: mode, id: id}
 }
 
 func (f *fence) validateConfig() error {
 	switch f.mode {
-	case "marker":
+	case MarkerFence:
 		return nil
-	case "fsid", "device":
+	case FilesystemFence, DeviceFence:
 		if f.id == "" {
 			return fmt.Errorf("fence-id is required in %s mode", f.mode)
 		}
@@ -34,18 +34,18 @@ func (f *fence) validateConfig() error {
 }
 
 func (f *fence) validate() error {
-	marker, err := os.ReadFile(filepath.Join(f.basePath, ".dirpath-fence"))
+	marker, err := os.ReadFile(filepath.Join(string(f.basePath), ".dirpath-fence"))
 	if err != nil {
 		return fmt.Errorf("read marker: %w", err)
 	}
-	if string(marker) != f.token {
+	if string(marker) != string(f.token) {
 		return fmt.Errorf("marker token does not match")
 	}
 
 	switch f.mode {
-	case "marker":
+	case MarkerFence:
 		return nil
-	case "fsid":
+	case FilesystemFence:
 		actual, err := filesystemID(f.basePath)
 		if err != nil {
 			return err
@@ -53,7 +53,7 @@ func (f *fence) validate() error {
 		if actual != f.id {
 			return fmt.Errorf("filesystem id %q does not match %q", actual, f.id)
 		}
-	case "device":
+	case DeviceFence:
 		actual, err := deviceID(f.basePath)
 		if err != nil {
 			return err
@@ -65,17 +65,17 @@ func (f *fence) validate() error {
 	return nil
 }
 
-func filesystemID(path string) (string, error) {
+func filesystemID(path BasePath) (string, error) {
 	var stat unix.Statfs_t
-	if err := unix.Statfs(path, &stat); err != nil {
+	if err := unix.Statfs(string(path), &stat); err != nil {
 		return "", fmt.Errorf("statfs: %w", err)
 	}
 	return fmt.Sprintf("%08x:%08x", uint32(stat.Fsid.Val[0]), uint32(stat.Fsid.Val[1])), nil
 }
 
-func deviceID(path string) (string, error) {
+func deviceID(path BasePath) (string, error) {
 	var stat unix.Stat_t
-	if err := unix.Stat(path, &stat); err != nil {
+	if err := unix.Stat(string(path), &stat); err != nil {
 		return "", fmt.Errorf("stat: %w", err)
 	}
 	device := uint64(stat.Dev)

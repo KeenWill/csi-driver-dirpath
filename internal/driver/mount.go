@@ -88,9 +88,9 @@ func unescapeMountInfo(path string) string {
 	return replacer.Replace(path)
 }
 
-func availableBytes(path string) (int64, error) {
+func availableBytes(path BasePath) (int64, error) {
 	var stat unix.Statfs_t
-	if err := unix.Statfs(path, &stat); err != nil {
+	if err := unix.Statfs(string(path), &stat); err != nil {
 		return 0, err
 	}
 	available := uint64(stat.Bavail) * uint64(stat.Bsize)

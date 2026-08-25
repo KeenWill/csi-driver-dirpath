@@ -69,7 +69,7 @@ func TestCreateVolumeRejectsMountFlags(t *testing.T) {
 	if _, err := d.CreateVolume(context.Background(), request); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("CreateVolume error = %v, want InvalidArgument", err)
 	}
-	if _, err := os.Stat(d.store.volumePath(volumeID(request.Name))); !os.IsNotExist(err) {
+	if _, err := os.Stat(d.store.volumePath(deriveVolumeID(request.Name))); !os.IsNotExist(err) {
 		t.Fatalf("unsupported volume was created: %v", err)
 	}
 }
@@ -153,12 +153,21 @@ func testDriver(t *testing.T) *Driver {
 	return New(Config{
 		NodeID:            "node-a",
 		Version:           "test",
-		BasePath:          basePath,
+		BasePath:          BasePath(basePath),
 		FenceToken:        "test-fence",
 		MountMode:         "noop",
 		OrphanGracePeriod: 10 * time.Minute,
 		ReconcileInterval: time.Minute,
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func mustVolumeID(t *testing.T, value string) VolumeID {
+	t.Helper()
+	id, err := parseVolumeID(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func testCapabilities() []*csi.VolumeCapability {

@@ -25,20 +25,21 @@ func main() {
 	flag.Parse()
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	if *nodeID == "" {
-		logger.Error("node-id is required")
-		os.Exit(2)
-	}
+	parsedNodeID := parseFlag(logger, "node-id", *nodeID, driver.ParseNodeID)
+	parsedBasePath := parseFlag(logger, "base-path", *basePath, driver.ParseBasePath)
+	parsedFenceToken := parseFlag(logger, "fence-token", *fenceToken, driver.ParseFenceToken)
+	parsedFenceMode := parseFlag(logger, "fence-mode", *fenceMode, driver.ParseFenceMode)
+	parsedMountMode := parseFlag(logger, "mount-mode", *mountMode, driver.ParseMountMode)
 
 	d := driver.New(driver.Config{
 		Endpoint:          *endpoint,
-		NodeID:            *nodeID,
+		NodeID:            parsedNodeID,
 		Version:           version,
-		BasePath:          *basePath,
-		FenceToken:        *fenceToken,
-		FenceMode:         *fenceMode,
+		BasePath:          parsedBasePath,
+		FenceToken:        parsedFenceToken,
+		FenceMode:         parsedFenceMode,
 		FenceID:           *fenceID,
-		MountMode:         *mountMode,
+		MountMode:         parsedMountMode,
 		OrphanReclaim:     *orphanReclaim,
 		OrphanGracePeriod: *orphanGrace,
 		ReconcileInterval: *reconcileInterval,
@@ -47,4 +48,13 @@ func main() {
 		logger.Error("driver stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func parseFlag[T any](logger *slog.Logger, name, raw string, parse func(string) (T, error)) T {
+	value, err := parse(raw)
+	if err != nil {
+		logger.Error("invalid flag", "flag", name, "error", err)
+		os.Exit(2)
+	}
+	return value
 }

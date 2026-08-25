@@ -5,15 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 )
 
-var volumeIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-
 type volumeMetadata struct {
-	ID            string            `json:"id"`
+	ID            VolumeID          `json:"id"`
 	Name          string            `json:"name"`
-	NodeID        string            `json:"nodeID"`
+	NodeID        NodeID            `json:"nodeID"`
 	CapacityBytes int64             `json:"capacityBytes"`
 	Parameters    map[string]string `json:"parameters,omitempty"`
 }
@@ -25,23 +22,16 @@ type volumeStore struct {
 	syncDirectory func(string) error
 }
 
-func newVolumeStore(basePath string) *volumeStore {
+func newVolumeStore(basePath BasePath) *volumeStore {
 	return &volumeStore{
-		volumes:       filepath.Join(basePath, "volumes"),
-		metadata:      filepath.Join(basePath, ".dirpath-meta", "volumes"),
+		volumes:       filepath.Join(string(basePath), "volumes"),
+		metadata:      filepath.Join(string(basePath), ".dirpath-meta", "volumes"),
 		removeAll:     os.RemoveAll,
 		syncDirectory: syncDirectory,
 	}
 }
 
-func validVolumeID(id string) bool {
-	return volumeIDPattern.MatchString(id)
-}
-
 func (s *volumeStore) create(v volumeMetadata) error {
-	if !validVolumeID(v.ID) {
-		return fmt.Errorf("invalid volume id %q", v.ID)
-	}
 	if err := s.ensureDirectory(v.ID); err != nil {
 		return err
 	}
@@ -78,10 +68,7 @@ func (s *volumeStore) create(v volumeMetadata) error {
 	return nil
 }
 
-func (s *volumeStore) load(id string) (volumeMetadata, error) {
-	if !validVolumeID(id) {
-		return volumeMetadata{}, fmt.Errorf("invalid volume id %q", id)
-	}
+func (s *volumeStore) load(id VolumeID) (volumeMetadata, error) {
 	file, err := os.Open(s.metadataPath(id))
 	if err != nil {
 		return volumeMetadata{}, err
@@ -97,20 +84,14 @@ func (s *volumeStore) load(id string) (volumeMetadata, error) {
 	return v, nil
 }
 
-func (s *volumeStore) ensureDirectory(id string) error {
-	if !validVolumeID(id) {
-		return fmt.Errorf("invalid volume id %q", id)
-	}
+func (s *volumeStore) ensureDirectory(id VolumeID) error {
 	if err := s.mkdirAllDurable(s.volumePath(id), 0o750); err != nil {
 		return fmt.Errorf("create volume directory: %w", err)
 	}
 	return nil
 }
 
-func (s *volumeStore) delete(id string) error {
-	if !validVolumeID(id) {
-		return fmt.Errorf("invalid volume id %q", id)
-	}
+func (s *volumeStore) delete(id VolumeID) error {
 	if err := s.removeAll(s.volumePath(id)); err != nil {
 		return fmt.Errorf("remove volume directory: %w", err)
 	}
@@ -136,8 +117,8 @@ func (s *volumeStore) deleteEntry(name string) error {
 	if err := s.syncIfExists(s.volumes); err != nil {
 		return err
 	}
-	if validVolumeID(name) {
-		if err := os.Remove(s.metadataPath(name)); err != nil && !os.IsNotExist(err) {
+	if id, err := parseVolumeID(name); err == nil {
+		if err := os.Remove(s.metadataPath(id)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 		if err := s.syncIfExists(s.metadata); err != nil {
@@ -192,10 +173,10 @@ func syncDirectory(path string) error {
 	return directory.Sync()
 }
 
-func (s *volumeStore) volumePath(id string) string {
-	return filepath.Join(s.volumes, id)
+func (s *volumeStore) volumePath(id VolumeID) string {
+	return filepath.Join(s.volumes, string(id))
 }
 
-func (s *volumeStore) metadataPath(id string) string {
-	return filepath.Join(s.metadata, id+".json")
+func (s *volumeStore) metadataPath(id VolumeID) string {
+	return filepath.Join(s.metadata, string(id)+".json")
 }

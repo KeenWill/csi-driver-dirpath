@@ -22,7 +22,7 @@ func TestDirectoryLifecycleAndFence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.GetVolume().GetVolumeId()
+	id := mustVolumeID(t, created.GetVolume().GetVolumeId())
 	volumePath := d.store.volumePath(id)
 	if info, err := os.Stat(volumePath); err != nil || !info.IsDir() {
 		t.Fatalf("volume directory: info=%v err=%v", info, err)
@@ -35,7 +35,7 @@ func TestDirectoryLifecycleAndFence(t *testing.T) {
 	}
 	target := filepath.Join(t.TempDir(), "target")
 	if _, err := d.NodePublishVolume(context.Background(), &csi.NodePublishVolumeRequest{
-		VolumeId:         id,
+		VolumeId:         string(id),
 		TargetPath:       target,
 		VolumeCapability: testCapabilities()[0],
 	}); err != nil {
@@ -44,14 +44,14 @@ func TestDirectoryLifecycleAndFence(t *testing.T) {
 	if _, err := os.Stat(volumePath); err != nil {
 		t.Fatalf("recreated volume directory: %v", err)
 	}
-	if _, err := d.NodeUnpublishVolume(context.Background(), &csi.NodeUnpublishVolumeRequest{VolumeId: id, TargetPath: target}); err != nil {
+	if _, err := d.NodeUnpublishVolume(context.Background(), &csi.NodeUnpublishVolumeRequest{VolumeId: string(id), TargetPath: target}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(d.config.BasePath, ".dirpath-fence"), []byte("wrong"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(string(d.config.BasePath), ".dirpath-fence"), []byte("wrong"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: id}); status.Code(err) != codes.FailedPrecondition {
+	if _, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: string(id)}); status.Code(err) != codes.FailedPrecondition {
 		t.Fatalf("DeleteVolume with bad fence error = %v, want FailedPrecondition", err)
 	}
 	if _, err := os.Stat(volumePath); err != nil {
@@ -65,8 +65,8 @@ func TestDeleteVolumeRemovesDirectoryAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	id := created.GetVolume().GetVolumeId()
-	if _, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: id}); err != nil {
+	id := mustVolumeID(t, created.GetVolume().GetVolumeId())
+	if _, err := d.DeleteVolume(context.Background(), &csi.DeleteVolumeRequest{VolumeId: string(id)}); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{d.store.volumePath(id), d.store.metadataPath(id)} {
@@ -80,7 +80,7 @@ func TestReconcileDeletesOrphanAfterGracePeriod(t *testing.T) {
 	d := testDriver(t)
 	d.config.OrphanGracePeriod = time.Minute
 	d.pvs = staticPVLister{}
-	orphan := "vol-orphan"
+	orphan := VolumeID("vol-orphan")
 	if err := d.store.create(volumeMetadata{ID: orphan, Name: "orphan", NodeID: d.config.NodeID}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestReconcileDeletesOrphanAfterGracePeriod(t *testing.T) {
 
 func TestReconcileKeepsPersistentVolumeDirectory(t *testing.T) {
 	d := testDriver(t)
-	id := "vol-present"
+	id := VolumeID("vol-present")
 	if err := d.store.create(volumeMetadata{ID: id, Name: "present", NodeID: d.config.NodeID}); err != nil {
 		t.Fatal(err)
 	}
@@ -108,8 +108,8 @@ func TestReconcileKeepsPersistentVolumeDirectory(t *testing.T) {
 	}
 }
 
-type staticPVLister map[string]struct{}
+type staticPVLister map[VolumeID]struct{}
 
-func (l staticPVLister) List(context.Context) (map[string]struct{}, error) {
+func (l staticPVLister) List(context.Context) (map[VolumeID]struct{}, error) {
 	return l, nil
 }
